@@ -133,7 +133,7 @@ def _parse_json3_captions(payload: str) -> str:
 
 def _fetch_caption_url(url: str) -> str:
     """Fetch subtitle payload from a URL."""
-    proxy_url = TRANSCRIPT_PROXY_URL or TRANSCRIPT_PROXY_HTTPS_URL or TRANSCRIPT_PROXY_HTTP_URL
+    proxy_url = _compose_proxy_url()
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
     ) if proxy_url else urllib.request.build_opener()
