@@ -92,6 +92,11 @@ Configure two Render web services (backend + frontend) with these values:
 - **Recommended Environment Variables (to bypass cloud IP blocks):**
    - `TRANSCRIPT_PROXY_URL=http://username:password@proxy-host:port`
    - or both `TRANSCRIPT_PROXY_HTTP_URL=...` and `TRANSCRIPT_PROXY_HTTPS_URL=...`
+   - or (recommended to avoid encoding/auth issues):
+     - `TRANSCRIPT_PROXY_HOST=pr.oxylabs.io`
+     - `TRANSCRIPT_PROXY_PORT=7777`
+     - `TRANSCRIPT_PROXY_USERNAME=<proxy_username>`
+     - `TRANSCRIPT_PROXY_PASSWORD=<proxy_password>`
 - **Optional Environment Variables:**
    - `YTDLP_COOKIES_FILE=/opt/render/project/src/backend/cookies.txt`
 

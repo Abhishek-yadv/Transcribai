@@ -18,6 +18,7 @@ import os
 import json
 import html
 import urllib.request
+from urllib.parse import quote
 
 from yt_dlp import YoutubeDL
 from dotenv import load_dotenv
@@ -49,6 +50,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 TRANSCRIPT_PROXY_URL = os.getenv("TRANSCRIPT_PROXY_URL", "").strip()
 TRANSCRIPT_PROXY_HTTP_URL = os.getenv("TRANSCRIPT_PROXY_HTTP_URL", "").strip()
 TRANSCRIPT_PROXY_HTTPS_URL = os.getenv("TRANSCRIPT_PROXY_HTTPS_URL", "").strip()
+TRANSCRIPT_PROXY_HOST = os.getenv("TRANSCRIPT_PROXY_HOST", "").strip()
+TRANSCRIPT_PROXY_PORT = os.getenv("TRANSCRIPT_PROXY_PORT", "").strip()
+TRANSCRIPT_PROXY_USERNAME = os.getenv("TRANSCRIPT_PROXY_USERNAME", "").strip()
+TRANSCRIPT_PROXY_PASSWORD = os.getenv("TRANSCRIPT_PROXY_PASSWORD", "").strip()
 
 # ========================
 # Data Models
@@ -136,10 +141,22 @@ def _fetch_caption_url(url: str) -> str:
     with opener.open(url, timeout=20) as response:
         return response.read().decode("utf-8", errors="ignore")
 
+def _compose_proxy_url() -> str:
+    """Build proxy URL from explicit vars first, then fallback to direct URL vars."""
+    if TRANSCRIPT_PROXY_HOST and TRANSCRIPT_PROXY_PORT:
+        if TRANSCRIPT_PROXY_USERNAME and TRANSCRIPT_PROXY_PASSWORD:
+            username = quote(TRANSCRIPT_PROXY_USERNAME, safe="")
+            password = quote(TRANSCRIPT_PROXY_PASSWORD, safe="")
+            return f"http://{username}:{password}@{TRANSCRIPT_PROXY_HOST}:{TRANSCRIPT_PROXY_PORT}"
+        return f"http://{TRANSCRIPT_PROXY_HOST}:{TRANSCRIPT_PROXY_PORT}"
+
+    return TRANSCRIPT_PROXY_URL or TRANSCRIPT_PROXY_HTTPS_URL or TRANSCRIPT_PROXY_HTTP_URL
+
 def _create_transcript_api_client() -> YouTubeTranscriptApi:
     """Create YouTubeTranscriptApi client with optional proxy config."""
-    http_proxy = TRANSCRIPT_PROXY_HTTP_URL or TRANSCRIPT_PROXY_URL
-    https_proxy = TRANSCRIPT_PROXY_HTTPS_URL or TRANSCRIPT_PROXY_URL
+    proxy_url = _compose_proxy_url()
+    http_proxy = TRANSCRIPT_PROXY_HTTP_URL or proxy_url
+    https_proxy = TRANSCRIPT_PROXY_HTTPS_URL or proxy_url
 
     if GenericProxyConfig and (http_proxy or https_proxy):
         return YouTubeTranscriptApi(
@@ -187,7 +204,7 @@ def fetch_transcript_with_ytdlp(video_id: str) -> Optional[str]:
         "no_warnings": True,
         "skip_download": True,
     }
-    proxy_url = TRANSCRIPT_PROXY_URL or TRANSCRIPT_PROXY_HTTPS_URL or TRANSCRIPT_PROXY_HTTP_URL
+    proxy_url = _compose_proxy_url()
     if proxy_url:
         ydl_opts["proxy"] = proxy_url
 
@@ -351,6 +368,21 @@ def get_transcript(request: TranscriptRequest):
                     "This request failed on both primary and fallback methods. "
                     "Use a proxy-enabled transcript service or residential proxy for production."
                     + proxy_hint
+                )
+            )
+
+        if (
+            "407" in normalized_error
+            or "proxy authentication required" in normalized_error
+            or "unable to connect to proxy" in normalized_error
+            or "tunnel connection failed" in normalized_error
+        ):
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Proxy authentication failed (407). Verify Oxylabs credentials and endpoint. "
+                    "Recommended: set TRANSCRIPT_PROXY_HOST, TRANSCRIPT_PROXY_PORT, "
+                    "TRANSCRIPT_PROXY_USERNAME, TRANSCRIPT_PROXY_PASSWORD in Render backend env."
                 )
             )
 
