@@ -14,6 +14,12 @@ import fitz
 import re
 import math
 import base64
+import os
+import json
+import html
+import urllib.request
+
+from yt_dlp import YoutubeDL
 
 app = FastAPI(
     title="Transcribai API",
@@ -31,9 +37,7 @@ app.add_middleware(
 )
 
 # Groq API Key
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise ValueError("GROQ_API_KEY environment variable is not set")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # ========================
 # Data Models
@@ -83,6 +87,97 @@ def extract_video_id(url: str) -> Optional[str]:
         if match:
             return match.group(0)
     return None
+
+def _parse_vtt_or_srt(content: str) -> str:
+    """Parse VTT/SRT subtitle text into plain transcript."""
+    cleaned_lines = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("WEBVTT"):
+            continue
+        if "-->" in stripped:
+            continue
+        if re.match(r"^\d+$", stripped):
+            continue
+        cleaned_lines.append(stripped)
+    return " ".join(cleaned_lines)
+
+def _parse_json3_captions(payload: str) -> str:
+    """Parse YouTube json3 captions format into plain transcript."""
+    data = json.loads(payload)
+    chunks = []
+    for event in data.get("events", []):
+        for seg in event.get("segs", []):
+            text = seg.get("utf8", "").strip()
+            if text:
+                chunks.append(text)
+    return " ".join(chunks)
+
+def _fetch_caption_url(url: str) -> str:
+    """Fetch subtitle payload from a URL."""
+    with urllib.request.urlopen(url, timeout=20) as response:
+        return response.read().decode("utf-8", errors="ignore")
+
+def _select_caption_track(info: dict) -> Optional[dict]:
+    """Pick best available caption track with language and format priority."""
+    preferred_langs = ["en", "en-US", "en-GB"]
+    preferred_exts = ["json3", "srv3", "vtt", "ttml", "xml", "srt"]
+
+    merged_tracks = {}
+    for source in ("subtitles", "automatic_captions"):
+        for lang, tracks in (info.get(source) or {}).items():
+            merged_tracks.setdefault(lang, []).extend(tracks or [])
+
+    if not merged_tracks:
+        return None
+
+    language_order = preferred_langs + [lang for lang in merged_tracks.keys() if lang not in preferred_langs]
+    for lang in language_order:
+        tracks = merged_tracks.get(lang, [])
+        if not tracks:
+            continue
+
+        for ext in preferred_exts:
+            for track in tracks:
+                if track.get("ext") == ext and track.get("url"):
+                    return track
+
+        for track in tracks:
+            if track.get("url"):
+                return track
+
+    return None
+
+def fetch_transcript_with_ytdlp(video_id: str) -> Optional[str]:
+    """Fallback transcript extraction via yt-dlp caption tracks."""
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+    }
+    cookies_file = os.getenv("YTDLP_COOKIES_FILE")
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
+
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+
+    track = _select_caption_track(info or {})
+    if not track:
+        return None
+
+    payload = _fetch_caption_url(track["url"])
+    ext = (track.get("ext") or "").lower()
+
+    if ext in {"json3", "srv3"}:
+        transcript_text = _parse_json3_captions(payload)
+    else:
+        transcript_text = _parse_vtt_or_srt(payload)
+
+    transcript_text = html.unescape(transcript_text).replace("\n", " ").strip()
+    return transcript_text or None
 
 def create_pdf_from_text(title: str, content: str) -> bytes:
     """Create a professionally styled PDF from text"""
@@ -194,20 +289,40 @@ def get_transcript(request: TranscriptRequest):
         transcript = api.fetch(video_id)
         transcript_text = " ".join([entry.text for entry in transcript])
         return TranscriptResponse(transcript=transcript_text, video_id=video_id)
-    except Exception as e:
-        error_msg = str(e)
-        if "disabled" in error_msg.lower():
+    except Exception as primary_error:
+        try:
+            fallback_text = fetch_transcript_with_ytdlp(video_id)
+            if fallback_text:
+                return TranscriptResponse(transcript=fallback_text, video_id=video_id)
+        except Exception:
+            pass
+
+        error_msg = str(primary_error)
+        normalized_error = error_msg.lower()
+
+        if "disabled" in normalized_error:
             raise HTTPException(status_code=400, detail="Subtitles are disabled for this video.")
-        elif "unavailable" in error_msg.lower():
+        if "unavailable" in normalized_error or "not found" in normalized_error:
             raise HTTPException(status_code=404, detail="Video not found or unavailable.")
-        else:
-            raise HTTPException(status_code=500, detail=f"Error fetching transcript: {error_msg}")
+        if "requestblocked" in normalized_error or "ipblocked" in normalized_error or "youtube is blocking requests" in normalized_error:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Transcript provider blocked your server IP (common on cloud hosts). "
+                    "This request failed on both primary and fallback methods. "
+                    "Use a proxy-enabled transcript service or residential proxy for production."
+                )
+            )
+
+        raise HTTPException(status_code=500, detail=f"Error fetching transcript: {error_msg}")
 
 @app.post("/api/generate", response_model=ExcerptList)
 def generate_excerpts(request: GenerateRequest):
     """Generate insights from transcript using AI"""
     if not request.transcript or len(request.transcript.strip()) < 100:
         raise HTTPException(status_code=400, detail="Transcript is too short to generate insights.")
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="Server configuration error: GROQ_API_KEY is not set.")
     
     try:
         llm = ChatGroq(

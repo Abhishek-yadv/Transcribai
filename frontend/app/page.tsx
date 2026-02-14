@@ -91,8 +91,8 @@ export default function Home() {
 
         try {
             const data = await generateExcerpts(transcript);
-            setExcerpts(data.excerpts);
-            setStatus({ type: 'success', message: `Generated ${data.excerpts.length} excerpts` });
+            setExcerpts(data.insights);
+            setStatus({ type: 'success', message: `Generated ${data.insights.length} insights` });
         } catch (error: any) {
             setStatus({ type: 'error', message: error.message || 'Failed to generate excerpts' });
         } finally {

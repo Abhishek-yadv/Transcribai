@@ -1,12 +1,30 @@
+# System
+.DS_Store
+Thumbs.db
+
+# Python
 __pycache__/
-*.py[cod]
-*$py.class
-.env
-.venv
+*.pyc
+*.pyo
+*.pyd
+.Python
 env/
 venv/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node / Frontend
 node_modules/
+npm-debug.log
+yarn-error.log
 .next/
-dist/
 build/
-.DS_Store
+dist/
+.vercel
+
+# IDE
+.vscode/
+.idea/
+*.swp

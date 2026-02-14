@@ -24,6 +24,7 @@
 - **FastAPI** (Python)
 - **LangChain + Groq** (AI Logic)
 - **YouTube Transcript API**
+- **yt-dlp fallback** (caption extraction fallback for cloud-hosted environments)
 - **xhtml2pdf** & **PyMuPDF** (PDF/Image Generation)
 
 ## 🚀 Getting Started
@@ -61,7 +62,17 @@
    - Create a `.env` in `backend/` and add:
      ```env
      GROQ_API_KEY=your_groq_api_key_here
+   # Optional: absolute path to cookies file for yt-dlp fallback (if needed)
+   YTDLP_COOKIES_FILE=/path/to/cookies.txt
      ```
+
+## ☁️ Render / Cloud Note
+
+Some cloud IP ranges are blocked by YouTube for transcript scraping. The backend now tries:
+1. `youtube_transcript_api` (primary)
+2. `yt-dlp` captions fallback (automatic/manual subtitle tracks)
+
+If both fail due to network/IP blocking, use a proxy-enabled setup in production.
 
 ## 📝 API Endpoints
 

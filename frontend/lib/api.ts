@@ -1,5 +1,4 @@
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '');
-console.log('Transcribai API URL:', API_BASE_URL);
+const API_BASE_URL = 'http://localhost:8000/api';
 
 export interface TranscriptResponse {
     transcript: string;
@@ -12,7 +11,7 @@ export interface Excerpt {
 }
 
 export interface ExcerptList {
-    excerpts: Excerpt[];
+    insights: Excerpt[];
 }
 
 export interface DownloadResponse {
