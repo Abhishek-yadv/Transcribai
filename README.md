@@ -62,8 +62,13 @@
    - Create a `.env` in `backend/` and add:
      ```env
      GROQ_API_KEY=your_groq_api_key_here
-   # Optional: absolute path to cookies file for yt-dlp fallback (if needed)
-   YTDLP_COOKIES_FILE=/path/to/cookies.txt
+       # Recommended for production on Render (single proxy URL)
+       TRANSCRIPT_PROXY_URL=http://username:password@proxy-host:port
+       # Or provide separate values
+       # TRANSCRIPT_PROXY_HTTP_URL=http://username:password@proxy-host:port
+       # TRANSCRIPT_PROXY_HTTPS_URL=http://username:password@proxy-host:port
+       # Optional: absolute path to cookies file for yt-dlp fallback (if needed)
+       YTDLP_COOKIES_FILE=/path/to/cookies.txt
      ```
 
 ## ☁️ Render / Cloud Note
@@ -84,6 +89,9 @@ Configure two Render web services (backend + frontend) with these values:
 - **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
 - **Required Environment Variables:**
    - `GROQ_API_KEY=your_groq_api_key`
+- **Recommended Environment Variables (to bypass cloud IP blocks):**
+   - `TRANSCRIPT_PROXY_URL=http://username:password@proxy-host:port`
+   - or both `TRANSCRIPT_PROXY_HTTP_URL=...` and `TRANSCRIPT_PROXY_HTTPS_URL=...`
 - **Optional Environment Variables:**
    - `YTDLP_COOKIES_FILE=/opt/render/project/src/backend/cookies.txt`
 

@@ -22,6 +22,11 @@ import urllib.request
 from yt_dlp import YoutubeDL
 from dotenv import load_dotenv
 
+try:
+    from youtube_transcript_api.proxies import GenericProxyConfig
+except Exception:
+    GenericProxyConfig = None
+
 load_dotenv()
 
 app = FastAPI(
@@ -41,6 +46,9 @@ app.add_middleware(
 
 # Groq API Key
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+TRANSCRIPT_PROXY_URL = os.getenv("TRANSCRIPT_PROXY_URL", "").strip()
+TRANSCRIPT_PROXY_HTTP_URL = os.getenv("TRANSCRIPT_PROXY_HTTP_URL", "").strip()
+TRANSCRIPT_PROXY_HTTPS_URL = os.getenv("TRANSCRIPT_PROXY_HTTPS_URL", "").strip()
 
 # ========================
 # Data Models
@@ -120,8 +128,27 @@ def _parse_json3_captions(payload: str) -> str:
 
 def _fetch_caption_url(url: str) -> str:
     """Fetch subtitle payload from a URL."""
-    with urllib.request.urlopen(url, timeout=20) as response:
+    proxy_url = TRANSCRIPT_PROXY_URL or TRANSCRIPT_PROXY_HTTPS_URL or TRANSCRIPT_PROXY_HTTP_URL
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+    ) if proxy_url else urllib.request.build_opener()
+
+    with opener.open(url, timeout=20) as response:
         return response.read().decode("utf-8", errors="ignore")
+
+def _create_transcript_api_client() -> YouTubeTranscriptApi:
+    """Create YouTubeTranscriptApi client with optional proxy config."""
+    http_proxy = TRANSCRIPT_PROXY_HTTP_URL or TRANSCRIPT_PROXY_URL
+    https_proxy = TRANSCRIPT_PROXY_HTTPS_URL or TRANSCRIPT_PROXY_URL
+
+    if GenericProxyConfig and (http_proxy or https_proxy):
+        return YouTubeTranscriptApi(
+            proxy_config=GenericProxyConfig(
+                http_url=http_proxy or "",
+                https_url=https_proxy or ""
+            )
+        )
+    return YouTubeTranscriptApi()
 
 def _select_caption_track(info: dict) -> Optional[dict]:
     """Pick best available caption track with language and format priority."""
@@ -160,6 +187,10 @@ def fetch_transcript_with_ytdlp(video_id: str) -> Optional[str]:
         "no_warnings": True,
         "skip_download": True,
     }
+    proxy_url = TRANSCRIPT_PROXY_URL or TRANSCRIPT_PROXY_HTTPS_URL or TRANSCRIPT_PROXY_HTTP_URL
+    if proxy_url:
+        ydl_opts["proxy"] = proxy_url
+
     cookies_file = os.getenv("YTDLP_COOKIES_FILE")
     if cookies_file:
         ydl_opts["cookiefile"] = cookies_file
@@ -288,7 +319,7 @@ def get_transcript(request: TranscriptRequest):
         raise HTTPException(status_code=400, detail="Invalid YouTube URL. Please check the URL format.")
     
     try:
-        api = YouTubeTranscriptApi()
+        api = _create_transcript_api_client()
         transcript = api.fetch(video_id)
         transcript_text = " ".join([entry.text for entry in transcript])
         return TranscriptResponse(transcript=transcript_text, video_id=video_id)
@@ -308,12 +339,18 @@ def get_transcript(request: TranscriptRequest):
         if "unavailable" in normalized_error or "not found" in normalized_error:
             raise HTTPException(status_code=404, detail="Video not found or unavailable.")
         if "requestblocked" in normalized_error or "ipblocked" in normalized_error or "youtube is blocking requests" in normalized_error:
+            proxy_hint = (
+                " Set TRANSCRIPT_PROXY_URL (or TRANSCRIPT_PROXY_HTTP_URL + TRANSCRIPT_PROXY_HTTPS_URL) in Render."
+                if not (TRANSCRIPT_PROXY_URL or TRANSCRIPT_PROXY_HTTP_URL or TRANSCRIPT_PROXY_HTTPS_URL)
+                else " Current proxy configuration is set, but YouTube still blocked this route."
+            )
             raise HTTPException(
                 status_code=503,
                 detail=(
                     "Transcript provider blocked your server IP (common on cloud hosts). "
                     "This request failed on both primary and fallback methods. "
                     "Use a proxy-enabled transcript service or residential proxy for production."
+                    + proxy_hint
                 )
             )
 
