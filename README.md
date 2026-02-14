@@ -74,6 +74,31 @@ Some cloud IP ranges are blocked by YouTube for transcript scraping. The backend
 
 If both fail due to network/IP blocking, use a proxy-enabled setup in production.
 
+## 🚀 Render Deployment (Verified Settings)
+
+Configure two Render web services (backend + frontend) with these values:
+
+### 1) Backend service (Python)
+- **Root Directory:** `backend`
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- **Required Environment Variables:**
+   - `GROQ_API_KEY=your_groq_api_key`
+- **Optional Environment Variables:**
+   - `YTDLP_COOKIES_FILE=/opt/render/project/src/backend/cookies.txt`
+
+### 2) Frontend service (Next.js)
+- **Root Directory:** `frontend`
+- **Build Command:** `npm ci && npm run build`
+- **Start Command:** `npm run start -- -p $PORT`
+- **Required Environment Variables:**
+   - `NEXT_PUBLIC_API_BASE_URL=https://<your-backend-service>.onrender.com/api`
+
+### Why this matters
+- Frontend now reads API URL from `NEXT_PUBLIC_API_BASE_URL` instead of hardcoded localhost.
+- Backend uses `GROQ_API_KEY` from environment.
+- Uvicorn binds correctly to Render's dynamic port via `$PORT`.
+
 ## 📝 API Endpoints
 
 - `POST /api/transcript` - Fetch transcript from URL

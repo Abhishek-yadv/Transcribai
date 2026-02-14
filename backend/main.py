@@ -20,6 +20,9 @@ import html
 import urllib.request
 
 from yt_dlp import YoutubeDL
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(
     title="Transcribai API",
